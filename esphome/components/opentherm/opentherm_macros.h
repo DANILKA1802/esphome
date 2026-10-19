@@ -33,8 +33,8 @@ namespace esphome::opentherm {
 #endif
 
 // Use macros to create fields for every entity specified in the ESPHome configuration
-#define OPENTHERM_DECLARE_SENSOR(entity) sensor::Sensor *entity{nullptr};
-#define OPENTHERM_DECLARE_BINARY_SENSOR(entity) binary_sensor::BinarySensor *entity{nullptr};
+#define OPENTHERM_DECLARE_SENSOR(entity) sensor::Sensor *entity = nullptr;
+#define OPENTHERM_DECLARE_BINARY_SENSOR(entity) binary_sensor::BinarySensor *entity = nullptr;
 #define OPENTHERM_DECLARE_SWITCH(entity) OpenthermSwitch *entity;
 #define OPENTHERM_DECLARE_NUMBER(entity) OpenthermNumber *entity;
 #define OPENTHERM_DECLARE_OUTPUT(entity) OpenthermOutput *entity;
