@@ -1,8 +1,7 @@
 from typing import Any
 
 import esphome.codegen as cg
-from esphome.components import binary_sensor
-from esphome.components.const import CONF_CONNECTED
+from esphome.components import binary_sensor, const as component_const
 import esphome.config_validation as cv
 from esphome.const import DEVICE_CLASS_CONNECTIVITY, ENTITY_CATEGORY_DIAGNOSTIC
 
@@ -10,6 +9,7 @@ from .. import const, generate, schema, validate
 
 DEPENDENCIES = [const.OPENTHERM]
 COMPONENT_TYPE = const.BINARY_SENSOR
+CONF_CONNECTED = getattr(component_const, "CONF_CONNECTED", "connected")
 
 
 def get_entity_validation_schema(entity: schema.BinarySensorSchema) -> cv.Schema:
@@ -40,5 +40,9 @@ async def to_code(config: dict[str, Any]) -> None:
         {key: value for key, value in config.items() if key != CONF_CONNECTED},
     )
     hub = await cg.get_variable(config[const.CONF_OPENTHERM_ID])
-    sensors = binary_sensor.sub_binary_sensors(config)
-    await sensors(CONF_CONNECTED, hub.set_connected_binary_sensor)
+    if hasattr(binary_sensor, "sub_binary_sensors"):
+        sensors = binary_sensor.sub_binary_sensors(config)
+        await sensors(CONF_CONNECTED, hub.set_connected_binary_sensor)
+    elif CONF_CONNECTED in config:
+        connected = await binary_sensor.new_binary_sensor(config[CONF_CONNECTED])
+        cg.add(hub.set_connected_binary_sensor(connected))

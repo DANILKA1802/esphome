@@ -5,7 +5,12 @@
 
 namespace esphome::opentherm {
 
+#ifdef ESPHOME_LOG_TAG
 ESPHOME_LOG_TAG(TAG, "opentherm");
+#else
+// Compatibility with ESPHome 2026.8, before flash-resident log tags.
+static const char *const TAG = "opentherm";  // NOLINT
+#endif
 namespace message_data {
 bool parse_flag8_lb_0(OpenthermData &data) { return read_bit(data.valueLB, 0); }
 bool parse_flag8_lb_1(OpenthermData &data) { return read_bit(data.valueLB, 1); }

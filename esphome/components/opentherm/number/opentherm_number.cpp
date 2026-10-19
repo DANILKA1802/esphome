@@ -2,7 +2,12 @@
 
 namespace esphome::opentherm {
 
+#ifdef ESPHOME_LOG_TAG
 ESPHOME_LOG_TAG(TAG, "opentherm.number");
+#else
+// Compatibility with ESPHome 2026.8, before flash-resident log tags.
+static const char *const TAG = "opentherm.number";  // NOLINT
+#endif
 
 void OpenthermNumber::control(float value) {
   this->publish_state(value);
