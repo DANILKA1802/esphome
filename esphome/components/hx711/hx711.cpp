@@ -2,10 +2,9 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
-namespace esphome {
-namespace hx711 {
+namespace esphome::hx711 {
 
-static const char *const TAG = "hx711";
+ESPHOME_LOG_TAG(TAG, "hx711");
 
 void HX711Sensor::setup() {
   this->sck_pin_->setup();
@@ -22,7 +21,6 @@ void HX711Sensor::dump_config() {
   LOG_PIN("  SCK Pin: ", this->sck_pin_);
   LOG_UPDATE_INTERVAL(this);
 }
-float HX711Sensor::get_setup_priority() const { return setup_priority::DATA; }
 void HX711Sensor::update() {
   uint32_t result;
   if (this->read_sensor_(&result)) {
@@ -61,22 +59,16 @@ bool HX711Sensor::read_sensor_(uint32_t *result) {
     final_dout = this->dout_pin_->digital_read();
   }
 
-  if (!final_dout) {
+  if (!this->status_comm_result(final_dout)) {
     ESP_LOGW(TAG, "HX711 DOUT pin not high after reading (data 0x%" PRIx32 ")!", data);
-    this->status_set_warning();
     return false;
   }
 
-  this->status_clear_warning();
-
-  if (data & 0x800000ULL) {
-    data |= 0xFF000000ULL;
-  }
+  data = static_cast<uint32_t>(sign_extend<24>(data));
 
   if (result != nullptr)
     *result = data;
   return true;
 }
 
-}  // namespace hx711
-}  // namespace esphome
+}  // namespace esphome::hx711

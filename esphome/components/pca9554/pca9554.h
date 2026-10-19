@@ -4,32 +4,32 @@
 #include "esphome/core/hal.h"
 #include "esphome/components/i2c/i2c.h"
 #include "esphome/components/gpio_expander/cached_gpio.h"
+#include "esphome/components/gpio_expander/expander_gpio_pin.h"
 
-namespace esphome {
-namespace pca9554 {
+namespace esphome::pca9554 {
 
-class PCA9554Component : public Component,
-                         public i2c::I2CDevice,
-                         public gpio_expander::CachedGpioExpander<uint16_t, 16> {
+class PCA9554Component final : public Component,
+                               public i2c::I2CDevice,
+                               public gpio_expander::CachedGpioExpander<uint16_t, 16> {
  public:
   PCA9554Component() = default;
 
   /// Check i2c availability and setup masks
   void setup() override;
-  /// Invalidate cache at start of each loop
   void loop() override;
   /// Helper function to set the pin mode of a pin.
   void pin_mode(uint8_t pin, gpio::Flags flags);
 
   float get_setup_priority() const override;
 
-  float get_loop_priority() const override;
-
   void dump_config() override;
 
   void set_pin_count(size_t pin_count) { this->pin_count_ = pin_count; }
+  void set_interrupt_pin(InternalGPIOPin *pin) { this->interrupt_pin_ = pin; }
 
  protected:
+  static void IRAM_ATTR gpio_intr(PCA9554Component *arg);
+
   bool read_inputs_();
   bool write_register_(uint8_t reg, uint16_t value);
 
@@ -50,30 +50,11 @@ class PCA9554Component : public Component,
   uint16_t input_mask_{0x00};
   /// Storage for last I2C error seen
   esphome::i2c::ErrorCode last_error_;
+  InternalGPIOPin *interrupt_pin_{nullptr};
 };
 
-/// Helper class to expose a PCA9554 pin as an internal input GPIO pin.
-class PCA9554GPIOPin : public GPIOPin {
- public:
-  void setup() override;
-  void pin_mode(gpio::Flags flags) override;
-  bool digital_read() override;
-  void digital_write(bool value) override;
-  std::string dump_summary() const override;
+using PCA9554GPIOPin = gpio_expander::ExpanderGPIOPin<PCA9554Component>;
 
-  void set_parent(PCA9554Component *parent) { parent_ = parent; }
-  void set_pin(uint8_t pin) { pin_ = pin; }
-  void set_inverted(bool inverted) { inverted_ = inverted; }
-  void set_flags(gpio::Flags flags) { flags_ = flags; }
+}  // namespace esphome::pca9554
 
-  gpio::Flags get_flags() const override { return this->flags_; }
-
- protected:
-  PCA9554Component *parent_;
-  uint8_t pin_;
-  bool inverted_;
-  gpio::Flags flags_;
-};
-
-}  // namespace pca9554
-}  // namespace esphome
+ESPHOME_EXPANDER_PIN_SUMMARY_DECL(esphome::pca9554::PCA9554Component);

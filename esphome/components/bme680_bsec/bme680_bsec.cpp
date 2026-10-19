@@ -3,10 +3,11 @@
 #include "esphome/core/log.h"
 #include <string>
 
-namespace esphome {
-namespace bme680_bsec {
+namespace esphome::bme680_bsec {
 #ifdef USE_BSEC
-static const char *const TAG = "bme680_bsec.sensor";
+ESPHOME_LOG_TAG(TAG, "bme680_bsec.sensor");
+
+static constexpr uint32_t READ_TIMEOUT_ID = 0;
 
 static const std::string IAQ_ACCURACY_STATES[4] = {"Stabilizing", "Uncertain", "Calibrating", "Calibrated"};
 
@@ -162,9 +163,10 @@ void BME680BSECComponent::dump_config() {
                 "  IAQ Mode: %s\n"
                 "  Supply Voltage: %sV\n"
                 "  Sample Rate: %s\n"
-                "  State Save Interval: %ims",
-                this->temperature_offset_, this->iaq_mode_ == IAQ_MODE_STATIC ? "Static" : "Mobile",
-                this->supply_voltage_ == SUPPLY_VOLTAGE_3V3 ? "3.3" : "1.8",
+                "  State Save Interval: %" PRIu32 "ms",
+                this->temperature_offset_,
+                this->iaq_mode_ == IAQ_MODE_STATIC ? LOG_STR_LITERAL("Static") : LOG_STR_LITERAL("Mobile"),
+                this->supply_voltage_ == SUPPLY_VOLTAGE_3V3 ? LOG_STR_LITERAL("3.3") : LOG_STR_LITERAL("1.8"),
                 BME680_BSEC_SAMPLE_RATE_LOG(this->sample_rate_), this->state_save_interval_ms_);
 
   LOG_SENSOR("  ", "Temperature", this->temperature_sensor_);
@@ -181,8 +183,6 @@ void BME680BSECComponent::dump_config() {
   LOG_SENSOR("  ", "Breath VOC Equivalent", this->breath_voc_equivalent_sensor_);
 }
 
-float BME680BSECComponent::get_setup_priority() const { return setup_priority::DATA; }
-
 void BME680BSECComponent::loop() {
   this->run_();
 
@@ -191,11 +191,7 @@ void BME680BSECComponent::loop() {
   } else {
     this->status_clear_error();
   }
-  if (this->bsec_status_ > BSEC_OK || this->bme680_status_ > BME680_OK) {
-    this->status_set_warning();
-  } else {
-    this->status_clear_warning();
-  }
+  this->status_comm_result(this->bsec_status_ <= BSEC_OK && this->bme680_status_ <= BME680_OK, nullptr);
 
   // Process a single action from the queue. These are primarily sensor state publishes
   // that in totality take too long to send in a single call.
@@ -261,7 +257,7 @@ void BME680BSECComponent::run_() {
       this->snapshot_state_();
 
     ESP_LOGV(TAG, "Queueing read in %ums", meas_dur);
-    this->set_timeout("read", meas_dur, [this]() { this->read_(); });
+    this->set_timeout(READ_TIMEOUT_ID, meas_dur, [this]() { this->read_(); });
   } else {
     ESP_LOGV(TAG, "Measurement not required");
     this->read_();
@@ -273,10 +269,16 @@ void BME680BSECComponent::read_() {
   int64_t curr_time_ns = this->get_time_ns_();
 
   if (this->bme680_settings_.trigger_measurement) {
+    uint32_t start = millis();
     while (this->bme680_.power_mode != BME680_SLEEP_MODE) {
+      if (millis() - start > 50) {
+        ESP_LOGE(TAG, "Timeout waiting for BME680 to enter sleep mode");
+        return;
+      }
       this->bme680_status_ = bme680_get_sensor_mode(&this->bme680_);
       if (this->bme680_status_ != BME680_OK) {
-        ESP_LOGW(TAG, "Failed to get sensor mode (BME680 Error Code %d)", this->bme680_status_);
+        ESP_LOGE(TAG, "Failed to get sensor mode (BME680 Error Code %d)", this->bme680_status_);
+        return;
       }
     }
   }
@@ -385,7 +387,7 @@ void BME680BSECComponent::publish_(const bsec_output_t *outputs, uint8_t num_out
     switch (outputs[i].sensor_id) {
       case BSEC_OUTPUT_IAQ:
       case BSEC_OUTPUT_STATIC_IAQ: {
-        uint8_t accuracy = outputs[i].accuracy;
+        uint8_t accuracy = std::min<uint8_t>(outputs[i].accuracy, std::size(IAQ_ACCURACY_STATES) - 1);
         this->queue_push_([this, signal]() { this->publish_sensor_(this->iaq_sensor_, signal); });
         this->queue_push_([this, accuracy]() {
           this->publish_sensor_(this->iaq_accuracy_text_sensor_, IAQ_ACCURACY_STATES[accuracy]);
@@ -458,7 +460,7 @@ int8_t BME680BSECComponent::write_bytes_wrapper(uint8_t devid, uint8_t a_registe
 }
 
 void BME680BSECComponent::delay_ms(uint32_t period) {
-  ESP_LOGV(TAG, "Delaying for %ums", period);
+  ESP_LOGV(TAG, "Delaying for %" PRIu32 "ms", period);
   delay(period);
 }
 
@@ -517,7 +519,7 @@ int BME680BSECComponent::reinit_bsec_lib_() {
 }
 
 void BME680BSECComponent::load_state_() {
-  uint32_t hash = fnv1_hash("bme680_bsec_state_" + this->device_id_);
+  uint32_t hash = fnv1_hash_extend(fnv1_hash("bme680_bsec_state_"), this->device_id_);
   this->bsec_state_ = global_preferences->make_preference<uint8_t[BSEC_MAX_STATE_BLOB_SIZE]>(hash, true);
 
   if (!this->bsec_state_.load(&this->bsec_state_data_)) {
@@ -561,5 +563,4 @@ void BME680BSECComponent::save_state_(uint8_t accuracy) {
   ESP_LOGI(TAG, "Saved state");
 }
 #endif
-}  // namespace bme680_bsec
-}  // namespace esphome
+}  // namespace esphome::bme680_bsec
