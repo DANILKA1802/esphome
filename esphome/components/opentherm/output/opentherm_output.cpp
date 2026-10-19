@@ -3,7 +3,12 @@
 
 namespace esphome::opentherm {
 
+#ifdef ESPHOME_LOG_TAG
 ESPHOME_LOG_TAG(TAG, "opentherm.output");
+#else
+// Compatibility with ESPHome 2026.8, before flash-resident log tags.
+static const char *const TAG = "opentherm.output";  // NOLINT
+#endif
 
 void opentherm::OpenthermOutput::write_state(float state) {
   ESP_LOGD(TAG, "Received state: %.2f. Min value: %.2f, max value: %.2f", state, min_value_, max_value_);

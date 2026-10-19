@@ -2,7 +2,12 @@
 
 namespace esphome::opentherm {
 
+#ifdef ESPHOME_LOG_TAG
 ESPHOME_LOG_TAG(TAG, "opentherm.switch");
+#else
+// Compatibility with ESPHome 2026.8, before flash-resident log tags.
+static const char *const TAG = "opentherm.switch";  // NOLINT
+#endif
 
 void OpenthermSwitch::write_state(bool state) { this->publish_state(state); }
 

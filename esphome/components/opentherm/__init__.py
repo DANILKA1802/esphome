@@ -24,6 +24,7 @@ CONF_CH2_ACTIVE = "ch2_active"
 CONF_SUMMER_MODE_ACTIVE = "summer_mode_active"
 CONF_DHW_BLOCK = "dhw_block"
 CONF_SYNC_MODE = "sync_mode"
+CONF_CONNECTION_TIMEOUT = "connection_timeout"
 CONF_BEFORE_SEND = "before_send"
 CONF_BEFORE_PROCESS_RESPONSE = "before_process_response"
 
@@ -53,6 +54,10 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SUMMER_MODE_ACTIVE, False): cv.boolean,
             cv.Optional(CONF_DHW_BLOCK, False): cv.boolean,
             cv.Optional(CONF_SYNC_MODE, False): cv.boolean,
+            cv.Optional(CONF_CONNECTION_TIMEOUT, default="10s"): cv.All(
+                cv.positive_time_period_milliseconds,
+                cv.Range(min=cv.TimePeriod(milliseconds=1000)),
+            ),
             cv.Optional(CONF_BEFORE_SEND): automation.validate_automation({}),
             cv.Optional(CONF_BEFORE_PROCESS_RESPONSE): automation.validate_automation(
                 {}
@@ -87,8 +92,13 @@ async def to_code(config: dict[str, Any]) -> None:
     await cg.register_component(var, config)
 
     # Set pins
-    await cg.add_pin(var.set_in_pin, config[CONF_IN_PIN])
-    await cg.add_pin(var.set_out_pin, config[CONF_OUT_PIN])
+    if hasattr(cg, "add_pin"):
+        await cg.add_pin(var.set_in_pin, config[CONF_IN_PIN])
+        await cg.add_pin(var.set_out_pin, config[CONF_OUT_PIN])
+    else:
+        # ESPHome 2026.8 does not provide the setter helpers yet.
+        cg.add(var.set_in_pin(await cg.gpio_pin_expression(config[CONF_IN_PIN])))
+        cg.add(var.set_out_pin(await cg.gpio_pin_expression(config[CONF_OUT_PIN])))
 
     non_sensors = {
         CONF_ID,
@@ -103,9 +113,11 @@ async def to_code(config: dict[str, Any]) -> None:
         if key in non_sensors:
             continue
         if key in schema.INPUTS:
-            await cg.add_variable(
-                getattr(var, f"set_{key}_{const.INPUT_SENSOR}"), value
-            )
+            setter = getattr(var, f"set_{key}_{const.INPUT_SENSOR}")
+            if hasattr(cg, "add_variable"):
+                await cg.add_variable(setter, value)
+            else:
+                cg.add(setter(await cg.get_variable(value)))
             input_sensors.append(key)
         elif key in schema.SETTINGS:
             if value == schema.SETTINGS[key].default_value:

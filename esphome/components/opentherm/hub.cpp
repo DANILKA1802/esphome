@@ -5,7 +5,12 @@
 
 namespace esphome::opentherm {
 
+#ifdef ESPHOME_LOG_TAG
 ESPHOME_LOG_TAG(TAG, "opentherm");
+#else
+// Compatibility with ESPHome 2026.8, before flash-resident log tags.
+static const char *const TAG = "opentherm";  // NOLINT
+#endif
 namespace message_data {
 bool parse_flag8_lb_0(OpenthermData &data) { return read_bit(data.valueLB, 0); }
 bool parse_flag8_lb_1(OpenthermData &data) { return read_bit(data.valueLB, 1); }
@@ -133,6 +138,19 @@ void OpenthermHub::process_response(OpenthermData &data) {
            this->opentherm_->message_id_to_str((MessageId) data.id));
   this->opentherm_->debug_data(data);
 
+  if (data.type != MessageType::READ_ACK && data.type != MessageType::WRITE_ACK) {
+    switch (data.id) {
+      OPENTHERM_SENSOR_MESSAGE_HANDLERS(OPENTHERM_MESSAGE_RESPONSE_MESSAGE, OPENTHERM_MESSAGE_INVALIDATE_SENSOR, ,
+                                        OPENTHERM_MESSAGE_RESPONSE_POSTSCRIPT, )
+    }
+    switch (data.id) {
+      OPENTHERM_BINARY_SENSOR_MESSAGE_HANDLERS(OPENTHERM_MESSAGE_RESPONSE_MESSAGE,
+                                               OPENTHERM_MESSAGE_INVALIDATE_BINARY_SENSOR, ,
+                                               OPENTHERM_MESSAGE_RESPONSE_POSTSCRIPT, )
+    }
+    return;
+  }
+
   switch (data.id) {
     OPENTHERM_SENSOR_MESSAGE_HANDLERS(OPENTHERM_MESSAGE_RESPONSE_MESSAGE, OPENTHERM_MESSAGE_RESPONSE_ENTITY, ,
                                       OPENTHERM_MESSAGE_RESPONSE_POSTSCRIPT, )
@@ -144,6 +162,14 @@ void OpenthermHub::process_response(OpenthermData &data) {
 }
 
 void OpenthermHub::setup() {
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  if (this->connected_binary_sensor_ != nullptr) {
+    this->connected_binary_sensor_->publish_initial_state(false);
+  }
+#endif
+  this->set_interval(1000, [this]() {
+    this->publish_connection_state_(this->connection_status_.is_connected(millis(), this->connection_timeout_));
+  });
   this->opentherm_ = make_unique<OpenTherm>(this->in_pin_, this->out_pin_);
   if (!this->opentherm_->initialize()) {
     ESP_LOGE(TAG, "Failed to initialize OpenTherm protocol. See previous log messages for details.");
@@ -159,7 +185,35 @@ void OpenthermHub::setup() {
   this->message_iterator_ = this->messages_.begin();
 }
 
-void OpenthermHub::on_shutdown() { this->opentherm_->stop(); }
+void OpenthermHub::on_shutdown() {
+  this->connection_status_.reset();
+  this->publish_connection_state_(false);
+  this->opentherm_->stop();
+}
+
+void OpenthermHub::publish_connection_state_(bool connected) {
+  if (this->connected_ == connected)
+    return;
+  this->connected_ = connected;
+  if (!connected) {
+    this->refresh_initial_messages_ = true;
+    this->invalidate_boiler_states_();
+  }
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  if (this->connected_binary_sensor_ != nullptr)
+    this->connected_binary_sensor_->publish_state(connected);
+#endif
+  if (connected) {
+    ESP_LOGI(TAG, "Communication with boiler restored");
+  } else {
+    ESP_LOGW(TAG, "Communication with boiler lost");
+  }
+}
+
+void OpenthermHub::invalidate_boiler_states_() {
+  OPENTHERM_SENSOR_LIST(OPENTHERM_INVALIDATE_SENSOR, )
+  OPENTHERM_BINARY_SENSOR_LIST(OPENTHERM_INVALIDATE_BINARY_SENSOR, )
+}
 
 // Disabling clang-tidy for this particular line since it keeps removing the trailing underscore (bug?)
 void OpenthermHub::write_initial_messages_(std::vector<MessageId> &target) {  // NOLINT
@@ -326,6 +380,12 @@ bool OpenthermHub::should_skip_loop_(uint32_t cur_time) const {
 }
 
 void OpenthermHub::start_conversation_() {
+  if (this->connected_ && this->refresh_initial_messages_) {
+    this->refresh_initial_messages_ = false;
+    this->sending_initial_ = true;
+    this->write_initial_messages_(this->messages_);
+    this->message_iterator_ = this->messages_.begin();
+  }
   if (this->message_iterator_ == this->messages_.end()) {
     if (this->sending_initial_) {
       this->sending_initial_ = false;
@@ -343,6 +403,7 @@ void OpenthermHub::start_conversation_() {
   this->opentherm_->debug_data(request);
   // Send the request
   this->last_conversation_start_ = millis();
+  this->last_request_ = request;
   this->opentherm_->send(request);
 }
 
@@ -355,6 +416,19 @@ void OpenthermHub::read_response_() {
   }
 
   this->stop_opentherm_();
+
+  // Negative replies still confirm a live boiler. Echoes and unrelated frames do not.
+  const bool valid_response =
+      response.id == this->last_request_.id &&
+      ((this->last_request_.type == MessageType::READ_DATA && response.type == MessageType::READ_ACK) ||
+       (this->last_request_.type == MessageType::WRITE_DATA && response.type == MessageType::WRITE_ACK) ||
+       response.type == MessageType::DATA_INVALID || response.type == MessageType::UNKNOWN_DATAID);
+  if (!valid_response) {
+    ESP_LOGW(TAG, "Ignoring reply that does not match the request");
+    return;
+  }
+  this->connection_status_.record_response(millis());
+  this->publish_connection_state_(true);
 
   this->before_process_response_callback_.call(response);
   this->process_response(response);
@@ -382,6 +456,8 @@ void OpenthermHub::handle_timeout_error_() {
 }
 
 void OpenthermHub::handle_timer_error_() {
+  this->connection_status_.reset();
+  this->publish_connection_state_(false);
   this->opentherm_->report_and_reset_timer_error();
   this->stop_opentherm_();
   // Timer error is critical, there is no point in retrying.
@@ -408,6 +484,10 @@ void OpenthermHub::dump_config() {
                 SHOW(OPENTHERM_OUTPUT_LIST(ID, )), SHOW(OPENTHERM_NUMBER_LIST(ID, )));
   LOG_PIN("  In: ", this->in_pin_);
   LOG_PIN("  Out: ", this->out_pin_);
+  ESP_LOGCONFIG(TAG, "  Connection timeout: %u ms", static_cast<unsigned>(this->connection_timeout_));
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  LOG_BINARY_SENSOR("  ", "Connected", this->connected_binary_sensor_);
+#endif
   ESP_LOGCONFIG(TAG, "  Initial requests:");
   for (auto type : initial_messages) {
     ESP_LOGCONFIG(TAG, "  - %d (%s)", type, this->opentherm_->message_id_to_str(type));

@@ -7,6 +7,7 @@
 #include "esphome/core/log.h"
 
 #include "opentherm.h"
+#include "connection_status.h"
 
 #ifdef OPENTHERM_USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
@@ -76,6 +77,15 @@ class OpenthermHub final : public Component {
   // we are talking to the boiler. Enable if you experience random intermittent invalid response errors.
   // Very likely to happen while using Dallas temperature sensors.
   bool sync_mode_ = false;
+  uint32_t connection_timeout_{10000};
+  bool connected_{false};
+  bool refresh_initial_messages_{false};
+  ConnectionStatus connection_status_;
+  void publish_connection_state_(bool connected);
+  void invalidate_boiler_states_();
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
+#endif
 
   CallbackManager<void(OpenthermData &)> before_send_callback_;
   CallbackManager<void(OpenthermData &)> before_process_response_callback_;
@@ -158,6 +168,10 @@ class OpenthermHub final : public Component {
   void set_summer_mode_active(bool value) { this->summer_mode_active = value; }
   void set_dhw_block(bool value) { this->dhw_block = value; }
   void set_sync_mode(bool sync_mode) { this->sync_mode_ = sync_mode; }
+  void set_connection_timeout(uint32_t timeout) { this->connection_timeout_ = timeout; }
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  void set_connected_binary_sensor(binary_sensor::BinarySensor *sensor) { this->connected_binary_sensor_ = sensor; }
+#endif
 
   template<typename F> void add_on_before_send_callback(F &&callback) {
     this->before_send_callback_.add(std::forward<F>(callback));

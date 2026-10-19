@@ -20,7 +20,12 @@ namespace esphome::opentherm {
 
 using std::string;
 
+#ifdef ESPHOME_LOG_TAG
 ESPHOME_LOG_TAG(TAG, "opentherm");
+#else
+// Compatibility with ESPHome 2026.8, before flash-resident log tags.
+static const char *const TAG = "opentherm";  // NOLINT
+#endif
 
 #ifdef ESP8266
 OpenTherm *OpenTherm::instance = nullptr;
