@@ -16,6 +16,7 @@ opentherm:
   summer_mode_active: true
   dhw_block: true
   sync_mode: true
+  connection_timeout: 10s
   controller_product_type: 63
   controller_product_version: 1
   opentherm_version_controller: 2.2
@@ -124,6 +125,8 @@ sensor:
 
 binary_sensor:
   - platform: opentherm
+    connected:
+      name: "Boiler Connected"
     fault_indication:
       name: "Boiler Fault indication"
     ch_active:

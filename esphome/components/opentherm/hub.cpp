@@ -144,6 +144,14 @@ void OpenthermHub::process_response(OpenthermData &data) {
 }
 
 void OpenthermHub::setup() {
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  if (this->connected_binary_sensor_ != nullptr) {
+    this->connected_binary_sensor_->publish_initial_state(false);
+    this->set_interval(1000, [this]() {
+      this->publish_connection_state_(this->connection_status_.is_connected(millis(), this->connection_timeout_));
+    });
+  }
+#endif
   this->opentherm_ = make_unique<OpenTherm>(this->in_pin_, this->out_pin_);
   if (!this->opentherm_->initialize()) {
     ESP_LOGE(TAG, "Failed to initialize OpenTherm protocol. See previous log messages for details.");
@@ -159,7 +167,26 @@ void OpenthermHub::setup() {
   this->message_iterator_ = this->messages_.begin();
 }
 
-void OpenthermHub::on_shutdown() { this->opentherm_->stop(); }
+void OpenthermHub::on_shutdown() {
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  this->publish_connection_state_(false);
+#endif
+  this->opentherm_->stop();
+}
+
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+void OpenthermHub::publish_connection_state_(bool connected) {
+  if (this->connected_binary_sensor_ == nullptr || this->connected_ == connected)
+    return;
+  this->connected_ = connected;
+  this->connected_binary_sensor_->publish_state(connected);
+  if (connected) {
+    ESP_LOGI(TAG, "Communication with boiler restored");
+  } else {
+    ESP_LOGW(TAG, "Communication with boiler lost");
+  }
+}
+#endif
 
 // Disabling clang-tidy for this particular line since it keeps removing the trailing underscore (bug?)
 void OpenthermHub::write_initial_messages_(std::vector<MessageId> &target) {  // NOLINT
@@ -343,6 +370,7 @@ void OpenthermHub::start_conversation_() {
   this->opentherm_->debug_data(request);
   // Send the request
   this->last_conversation_start_ = millis();
+  this->last_request_ = request;
   this->opentherm_->send(request);
 }
 
@@ -355,6 +383,19 @@ void OpenthermHub::read_response_() {
   }
 
   this->stop_opentherm_();
+
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  // Negative replies still confirm a live boiler. Echoes and unrelated frames do not.
+  const bool valid_response =
+      response.id == this->last_request_.id &&
+      ((this->last_request_.type == MessageType::READ_DATA && response.type == MessageType::READ_ACK) ||
+       (this->last_request_.type == MessageType::WRITE_DATA && response.type == MessageType::WRITE_ACK) ||
+       response.type == MessageType::DATA_INVALID || response.type == MessageType::UNKNOWN_DATAID);
+  if (this->connected_binary_sensor_ != nullptr && valid_response) {
+    this->connection_status_.record_response(millis());
+    this->publish_connection_state_(true);
+  }
+#endif
 
   this->before_process_response_callback_.call(response);
   this->process_response(response);
@@ -382,6 +423,10 @@ void OpenthermHub::handle_timeout_error_() {
 }
 
 void OpenthermHub::handle_timer_error_() {
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  this->connection_status_.reset();
+  this->publish_connection_state_(false);
+#endif
   this->opentherm_->report_and_reset_timer_error();
   this->stop_opentherm_();
   // Timer error is critical, there is no point in retrying.
@@ -408,6 +453,10 @@ void OpenthermHub::dump_config() {
                 SHOW(OPENTHERM_OUTPUT_LIST(ID, )), SHOW(OPENTHERM_NUMBER_LIST(ID, )));
   LOG_PIN("  In: ", this->in_pin_);
   LOG_PIN("  Out: ", this->out_pin_);
+  ESP_LOGCONFIG(TAG, "  Connection timeout: %u ms", static_cast<unsigned>(this->connection_timeout_));
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  LOG_BINARY_SENSOR("  ", "Connected", this->connected_binary_sensor_);
+#endif
   ESP_LOGCONFIG(TAG, "  Initial requests:");
   for (auto type : initial_messages) {
     ESP_LOGCONFIG(TAG, "  - %d (%s)", type, this->opentherm_->message_id_to_str(type));

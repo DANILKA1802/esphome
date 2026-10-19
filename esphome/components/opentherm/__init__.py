@@ -24,6 +24,7 @@ CONF_CH2_ACTIVE = "ch2_active"
 CONF_SUMMER_MODE_ACTIVE = "summer_mode_active"
 CONF_DHW_BLOCK = "dhw_block"
 CONF_SYNC_MODE = "sync_mode"
+CONF_CONNECTION_TIMEOUT = "connection_timeout"
 CONF_BEFORE_SEND = "before_send"
 CONF_BEFORE_PROCESS_RESPONSE = "before_process_response"
 
@@ -53,6 +54,10 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_SUMMER_MODE_ACTIVE, False): cv.boolean,
             cv.Optional(CONF_DHW_BLOCK, False): cv.boolean,
             cv.Optional(CONF_SYNC_MODE, False): cv.boolean,
+            cv.Optional(CONF_CONNECTION_TIMEOUT, default="10s"): cv.All(
+                cv.positive_time_period_milliseconds,
+                cv.Range(min=cv.TimePeriod(milliseconds=1000)),
+            ),
             cv.Optional(CONF_BEFORE_SEND): automation.validate_automation({}),
             cv.Optional(CONF_BEFORE_PROCESS_RESPONSE): automation.validate_automation(
                 {}
