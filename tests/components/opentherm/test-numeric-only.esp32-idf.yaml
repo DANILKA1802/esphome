@@ -1,0 +1,9 @@
+opentherm:
+  in_pin: 17
+  out_pin: 16
+  connection_timeout: 5s
+
+sensor:
+  - platform: opentherm
+    t_boiler:
+      name: "Boiler Water Temperature"

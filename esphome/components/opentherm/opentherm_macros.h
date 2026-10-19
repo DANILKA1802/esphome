@@ -33,8 +33,8 @@ namespace esphome::opentherm {
 #endif
 
 // Use macros to create fields for every entity specified in the ESPHome configuration
-#define OPENTHERM_DECLARE_SENSOR(entity) sensor::Sensor *entity;
-#define OPENTHERM_DECLARE_BINARY_SENSOR(entity) binary_sensor::BinarySensor *entity;
+#define OPENTHERM_DECLARE_SENSOR(entity) sensor::Sensor *entity{nullptr};
+#define OPENTHERM_DECLARE_BINARY_SENSOR(entity) binary_sensor::BinarySensor *entity{nullptr};
 #define OPENTHERM_DECLARE_SWITCH(entity) OpenthermSwitch *entity;
 #define OPENTHERM_DECLARE_NUMBER(entity) OpenthermNumber *entity;
 #define OPENTHERM_DECLARE_OUTPUT(entity) OpenthermOutput *entity;
@@ -118,6 +118,15 @@ namespace esphome::opentherm {
 #define OPENTHERM_MESSAGE_RESPONSE_MESSAGE(msg) case MessageId::msg:
 #define OPENTHERM_MESSAGE_RESPONSE_ENTITY(key, msg_data) this->key->publish_state(message_data::parse_##msg_data(data));
 #define OPENTHERM_MESSAGE_RESPONSE_POSTSCRIPT break;
+
+#define OPENTHERM_INVALIDATE_SENSOR(entity) \
+  if (this->entity != nullptr) \
+    this->entity->publish_state(NAN);
+#define OPENTHERM_INVALIDATE_BINARY_SENSOR(entity) \
+  if (this->entity != nullptr) \
+    this->entity->invalidate_state();
+#define OPENTHERM_MESSAGE_INVALIDATE_SENSOR(key, msg_data) OPENTHERM_INVALIDATE_SENSOR(key)
+#define OPENTHERM_MESSAGE_INVALIDATE_BINARY_SENSOR(key, msg_data) OPENTHERM_INVALIDATE_BINARY_SENSOR(key)
 
 #define OPENTHERM_IGNORE(x, y)
 

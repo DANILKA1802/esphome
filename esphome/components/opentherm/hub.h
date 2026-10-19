@@ -7,13 +7,13 @@
 #include "esphome/core/log.h"
 
 #include "opentherm.h"
+#include "connection_status.h"
 
 #ifdef OPENTHERM_USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
 
 #ifdef OPENTHERM_USE_BINARY_SENSOR
-#include "connection_status.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
 
@@ -78,11 +78,13 @@ class OpenthermHub final : public Component {
   // Very likely to happen while using Dallas temperature sensors.
   bool sync_mode_ = false;
   uint32_t connection_timeout_{10000};
-#ifdef OPENTHERM_USE_BINARY_SENSOR
-  binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
   bool connected_{false};
+  bool refresh_initial_messages_{false};
   ConnectionStatus connection_status_;
   void publish_connection_state_(bool connected);
+  void invalidate_boiler_states_();
+#ifdef OPENTHERM_USE_BINARY_SENSOR
+  binary_sensor::BinarySensor *connected_binary_sensor_{nullptr};
 #endif
 
   CallbackManager<void(OpenthermData &)> before_send_callback_;

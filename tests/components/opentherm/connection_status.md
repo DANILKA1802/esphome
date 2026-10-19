@@ -29,6 +29,30 @@ so the transition can occur up to one second after the deadline. A fresh reply
 turns it ON again immediately. One lost packet does not change the status.
 Both normal and synchronous communication modes use the same monitor.
 
+## Missing boiler readings
+
+On connection loss, all configured OpenTherm numeric sensor readings are
+published as `NaN`; binary readings such as flame, fault and CH activity have
+their state invalidated. The connection sensor itself remains OFF. This also
+works when the optional `connected` entity is not configured.
+
+Home Assistant can then show the readings as unknown instead of keeping an old
+temperature or reporting that the flame is OFF. This is a per-reading unknown
+state, not a disconnection of the ESPHome device: Wi-Fi, the API and the climate
+entity can still work.
+
+Readings become valid individually when their next matching, positive reply
+arrives. The initial query sequence runs again after communication recovers, so
+startup-only readings also receive fresh values. A negative reply invalidates
+only the readings associated with that message; its payload is never published
+as measurement data. Unrelated replies and echoed requests are discarded.
+
+Control entities (`number`, `switch`, `output`) and room-temperature inputs keep
+their values. They represent requested settings or external inputs, not fresh
+measurements from the boiler. Numeric invalidation passes through the configured
+sensor filters, so filters should not discard or replace `NaN` if this behavior
+is required.
+
 `connected` measures OpenTherm communication, independently of Wi-Fi, the
 Home Assistant API, boiler faults, flame state, and heating demand. It does not
 send reset commands or change the boiler's settings. A local timer failure or
